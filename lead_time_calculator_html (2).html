@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dynamic Lead Time Calculator</title>
+<style>
+  body { font-family: Inter, Arial, sans-serif; background:#f4f7fb; margin:0; padding:22px; color:#0b1a2b }
+  h1{margin:0 0 12px}
+  .section { background:#fff; padding:16px; border-radius:10px; margin-bottom:16px; box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+  .btn { padding:8px 12px; border:none; border-radius:8px; background:#0ea5a4; color:#fff; cursor:pointer }
+  .smallBtn{padding:6px 8px;background:#e6eef2;border-radius:6px;border:none;cursor:pointer}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{border:1px solid #e6eef2;padding:8px;text-align:center;font-size:13px}
+  th{background:#f0f9ff;color:#0b3954}
+  .row{display:flex;gap:8px;align-items:center}
+  input[type=date], input[type=text], input[type=number]{padding:8px;border:1px solid #e6eef2;border-radius:6px}
+  .footer{ text-align:center;margin-top:20px;font-size:12px;font-style:italic;color:#6e6e6e }
+  .impact{background:#fff7ed}
+  .impact-badge{display:inline-block;margin-top:2px;padding:1px 4px;border-radius:3px;background:#fed7aa;font-size:10px;color:#7c2d12}
+  .thead-back{background:#dcfce7}
+  .thead-forward{background:#e0f2fe}
+  .mil-order{color:#111827;font-weight:600}
+  .mil-fab-etd{color:#b91c1c;font-weight:600}
+  .mil-fab-in{color:#15803d;font-weight:600}
+  .mil-etd-bd{color:#c2410c;font-weight:600}
+  .mil-eta{color:#1d4ed8;font-weight:600}
+  .mil-cdd{color:#0f766e;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>Dynamic Lead Time Calculator</h1>
+
+<details class="section" id="settingsPanel"><summary class="btn">Settings (Seasons, Holidays & Durations)</summary>
+  <div style="margin-top:12px">
+    <h3>Durations (calendar days)</h3>
+    <div class="row" style="flex-wrap:wrap;gap:12px">
+      <label>Order → Fabric ETD <input id="dur_od_fetd" type="number" value="60" style="width:90px"></label>
+      <label>Fabric ETD → Inhouse <input id="dur_fetd_fin" type="number" value="30" style="width:90px"></label>
+      <label>Inhouse → Prod End <input id="dur_fin_etd" type="number" value="45" style="width:90px"></label>
+      <label>ETD → ETA <input id="dur_etd_eta" type="number" value="60" style="width:90px"></label>
+      <label>ETA → CDD <input id="dur_eta_cdd" type="number" value="14" style="width:90px"></label>
+    </div>
+
+    <h3 style="margin-top:12px">Holiday Settings</h3>
+    <div id="holidayArea"></div>
+    <div style="margin-top:8px"><button id="addHoliday" class="smallBtn">+ Add Holiday</button></div>
+
+    <h3 style="margin-top:12px">Season Settings (for Backward Planning)</h3>
+    <div id="seasonArea"></div>
+    <div style="margin-top:8px"><button id="addSeason" class="smallBtn">+ Add Season</button></div>
+
+    <div style="margin-top:12px"><button id="saveSettings" class="btn">Save Settings</button></div>
+    <p style="margin-top:10px;font-size:13px;color:#475569">Notes: Orders Due (Mon-Fri USA). Fabric in-house (Sun-Thu BD). ETD ex-BD — Sunday vessel.</p>
+  </div>
+</details>
+
+<div class="section">
+  <h2>Backward Planning (Input: CDD per Season)</h2>
+  <div><button id="calcBackward" class="btn">Calculate Backward</button>
+  <button id="copyBackward" class="btn">Copy Backward Chart</button></div>
+  <div id="backwardChart" style="margin-top:12px"></div>
+</div>
+
+<div class="section">
+  <h2>Forward Planning (Inline editable Order Due)</h2>
+  <div style="margin-bottom:8px"><button id="addForwardRow" class="btn">Add Forward Row</button>
+  <button id="calcForward" class="btn">Recalculate</button>
+  <button id="copyForward" class="btn">Copy Forward Chart</button></div>
+  <div id="forwardChart"></div>
+</div>
+
+<footer class="footer">Calculator developed by Musfikur Rahman – Perry Ellis Bangladesh | Copyright © 2025.</footer>
+
+<script>
+// Utilities
+function fmt(d){ if(!d) return ''; if(!(d instanceof Date)) d = new Date(d+ 'T00:00:00'); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` }
+function toDate(s){ return s ? new Date(s+'T00:00:00') : null }
+function addDays(d,n){ const dt = new Date(d.getTime()); dt.setDate(dt.getDate()+n); return dt }
+function isWeekendUSA(d){ const day=d.getDay(); return day===0||day===6 }
+function isBDWeekend(d){ const day=d.getDay(); return day===5||day===6 }
+function isSunday(d){ return d.getDay()===0 }
+function nextMonToFri(d){ const dt=new Date(d.getTime()); while(isWeekendUSA(dt)) dt.setDate(dt.getDate()+1); return dt }
+function nextSunToThu(d){ const dt=new Date(d.getTime()); while(isBDWeekend(dt)) dt.setDate(dt.getDate()+1); return dt }
+function nextSunday(d){ const dt=new Date(d.getTime()); while(!isSunday(dt)) dt.setDate(dt.getDate()+1); return dt }
+
+// Data
+let holidays = [
+  {name:'1st Eid 2026', from:'2026-03-18', to:'2026-03-29', type:'BD'},
+  {name:'2nd Eid 2026', from:'2026-05-23', to:'2026-05-31', type:'BD'},
+  {name:'CNY 2026', from:'2026-02-03', to:'2026-03-03', type:'China'}
+];
+let seasons = [
+  {name:'SPRING 2026', cdd:'2026-01-25'},
+  {name:'SUMMER 2026', cdd:'2026-04-25'},
+  {name:'FALL 2026', cdd:'2026-07-25'},
+  {name:'HOLIDAY 2026', cdd:'2026-10-25'}
+];
+let forwardRows = [ {due:'2025-11-20'}, {due:'2025-11-27'} ];
+let durations = { od_fetd:60, fetd_fin:30, fin_etd:45, etd_eta:60, eta_cdd:14 };
+
+// Helpers
+function countOverlappingDays(start, end, typeFilter){
+  let extra=0;
+  holidays.forEach(h=>{
+    if(typeFilter && h.type !== typeFilter) return;
+    if(!h.from || !h.to) return;
+    const hs = toDate(h.from), he = toDate(h.to);
+    const s = start>hs? start: hs; const e = end<he? end: he; if(e < s) return; extra += Math.round((e-s)/(24*3600*1000))+1;
+  });
+  return extra;
+}
+
+// Renderers
+function renderHolidaySettings(){
+  const area = document.getElementById('holidayArea'); area.innerHTML='';
+  holidays.forEach((h,i)=>{
+    const div=document.createElement('div'); div.className='row';
+    const name = document.createElement('input'); name.type='text'; name.value=h.name; name.placeholder='Holiday name';
+    const from = document.createElement('input'); from.type='date'; from.value=h.from || '';
+    const to   = document.createElement('input'); to.type='date';   to.value=h.to   || '';
+    const sel  = document.createElement('select'); sel.innerHTML = '<option value="China">China (CNY/Oct)</option><option value="BD">BD (Eid)</option>';
+    sel.value = h.type || 'BD';
+    name.onchange = ()=>{ holidays[i].name = name.value }; from.onchange = ()=>{ holidays[i].from = from.value }; to.onchange = ()=>{ holidays[i].to = to.value }; sel.onchange = ()=>{ holidays[i].type = sel.value };
+    const del = document.createElement('button'); del.className='smallBtn'; del.textContent='X'; del.onclick=()=>{ holidays.splice(i,1); renderHolidaySettings(); };
+    div.appendChild(name); div.appendChild(from); div.appendChild(to); div.appendChild(sel); div.appendChild(del); area.appendChild(div);
+  });
+}
+
+function renderSeasonSettings(){
+  const area = document.getElementById('seasonArea'); area.innerHTML='';
+  seasons.forEach((s,i)=>{
+    const div=document.createElement('div'); div.className='row';
+    const name=document.createElement('input'); name.type='text'; name.value=s.name; name.placeholder='Season name';
+    const cdd = document.createElement('input'); cdd.type='date'; cdd.value=s.cdd || '';
+    name.onchange = ()=>{ seasons[i].name = name.value }; cdd.onchange = ()=>{ seasons[i].cdd = cdd.value };
+    const del = document.createElement('button'); del.className='smallBtn'; del.textContent='X'; del.onclick = ()=>{ seasons.splice(i,1); renderSeasonSettings(); };
+    div.appendChild(name); div.appendChild(cdd); div.appendChild(del); area.appendChild(div);
+  });
+}
+
+function recalcDurationsFromInputs(){
+  durations.od_fetd  = Number(document.getElementById('dur_od_fetd').value) || durations.od_fetd;
+  durations.fetd_fin = Number(document.getElementById('dur_fetd_fin').value) || durations.fetd_fin;
+  durations.fin_etd  = Number(document.getElementById('dur_fin_etd').value) || durations.fin_etd;
+  durations.etd_eta  = Number(document.getElementById('dur_etd_eta').value) || durations.etd_eta;
+  durations.eta_cdd  = Number(document.getElementById('dur_eta_cdd').value) || durations.eta_cdd;
+}
+
+function calculateBackward(){
+  recalcDurationsFromInputs();
+  const rows = [];
+  seasons.forEach(s=>{
+    if(!s.cdd) return;
+    const cdd = toDate(s.cdd); if(!cdd) return;
+    const eta = addDays(cdd, -durations.eta_cdd);
+    let etd = addDays(eta, -durations.etd_eta);
+    const chinaExtra = countOverlappingDays(addDays(etd,1), eta, 'China'); if(chinaExtra>0) etd = addDays(etd, -chinaExtra);
+    let fin = addDays(etd, -durations.fin_etd); fin = nextSunToThu(fin);
+    let fetd = addDays(fin, -durations.fetd_fin);
+    let od = addDays(fetd, -durations.od_fetd); od = nextMonToFri(od);
+    rows.push(`<tr${''}>
+      <td>${s.name}</td>
+      <td class='mil-cdd'>${fmt(cdd)}</td>
+      <td class='mil-eta'>${fmt(eta)}</td>
+      <td class='mil-etd-bd'>${fmt(nextSunday(etd))}</td>
+      <td class='mil-fab-in'>${fmt(fin)}</td>
+      <td class='mil-fab-etd'>${fmt(fetd)}</td>
+      <td class='mil-order'>${fmt(od)}</td>
+    </tr>`);
+  });
+  document.getElementById('backwardChart').innerHTML = `<table><thead class='thead-back'><tr><th>Season</th><th>CDD</th><th>ETA</th><th>ETD ex-BD</th><th>Fabric In-house</th><th>Fabric ETD</th><th>Order Due</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
+function calculateForward(){
+  recalcDurationsFromInputs();
+  const rows = [];
+  forwardRows.forEach((r,idx)=>{
+    if(!r.due) return;
+    let od = toDate(r.due); if(!od) return; od = nextMonToFri(od);
+    let fetd = addDays(od, durations.od_fetd);
+    let fin  = addDays(fetd, durations.fetd_fin); fin = nextSunToThu(fin);
+    let etd  = addDays(fin, durations.fin_etd);
+    const bdExtra = countOverlappingDays(addDays(fin,1), etd, 'BD'); if(bdExtra>0) etd = addDays(etd, bdExtra);
+    etd = nextSunday(etd);
+    let eta = addDays(etd, durations.etd_eta);
+    const chinaExtra = countOverlappingDays(addDays(etd,1), eta, 'China'); if(chinaExtra>0) eta = addDays(eta, chinaExtra);
+    const cdd = addDays(eta, durations.eta_cdd);
+
+    rows.push(`<tr data-idx='${idx}'>
+      <td><input type='date' class='fDue' data-idx='${idx}' value='${r.due || ''}' style='padding:6px'></td>
+      <td class='mil-fab-etd'>${fmt(fetd)}</td>
+      <td class='mil-fab-in'>${fmt(fin)}</td>
+      <td class='mil-etd-bd'>${fmt(etd)}</td>
+      <td class='mil-eta'>${fmt(eta)}</td>
+      <td class='mil-cdd'>${fmt(cdd)}</td>
+      <td><button class='smallBtn delForward' data-idx='${idx}'>X</button></td>
+    </tr>`);
+  });
+  document.getElementById('forwardChart').innerHTML = `<table><thead class='thead-forward'><tr><th>Order Due (editable)</th><th>Fabric ETD</th><th>Fabric In-house</th><th>ETD ex-BD</th><th>ETA USA</th><th>CDD</th><th>Del</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+
+  // wire inputs
+  document.querySelectorAll('#forwardChart .fDue').forEach(inp=>{
+    inp.onchange = e=>{ const idx = Number(e.target.dataset.idx); forwardRows[idx].due = e.target.value; calculateForward(); };
+  });
+  document.querySelectorAll('#forwardChart .delForward').forEach(btn=>{
+    btn.onclick = e=>{ const idx = Number(e.target.dataset.idx); forwardRows.splice(idx,1); calculateForward(); };
+  });
+}
+
+function copyTableAsText(containerId){
+  const container = document.getElementById(containerId); if(!container) return; const table = container.querySelector('table'); if(!table) return;
+  const lines = [];
+  table.querySelectorAll('tr').forEach(tr=>{
+    const cols = [];
+    tr.querySelectorAll('th,td').forEach(cell=>{
+      const inp = cell.querySelector('input'); cols.push(inp ? (inp.value||'') : cell.textContent.trim());
+    });
+    lines.push(cols.join('\t'));
+  });
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(()=>alert('Table copied as plain text. Paste into email or Excel.'), ()=>alert('Copy failed (clipboard blocked).'));
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('dur_od_fetd').value = durations.od_fetd;
+  document.getElementById('dur_fetd_fin').value = durations.fetd_fin;
+  document.getElementById('dur_fin_etd').value = durations.fin_etd;
+  document.getElementById('dur_etd_eta').value = durations.etd_eta;
+  document.getElementById('dur_eta_cdd').value = durations.eta_cdd;
+
+  renderHolidaySettings(); renderSeasonSettings(); calculateBackward(); calculateForward();
+
+  document.getElementById('addHoliday').onclick = ()=>{ holidays.push({name:'New Holiday', from:'', to:'', type:'BD'}); renderHolidaySettings(); };
+  document.getElementById('addSeason').onclick = ()=>{ seasons.push({name:'NEW SEASON', cdd:''}); renderSeasonSettings(); };
+  document.getElementById('saveSettings').onclick = ()=>{ recalcDurationsFromInputs(); alert('Settings saved & charts refreshed'); calculateBackward(); calculateForward(); };
+
+  document.getElementById('calcBackward').onclick = calculateBackward;
+  document.getElementById('calcForward').onclick = calculateForward;
+  document.getElementById('addForwardRow').onclick = ()=>{ forwardRows.push({due:''}); calculateForward(); };
+  document.getElementById('copyBackward').onclick = ()=>copyTableAsText('backwardChart');
+  document.getElementById('copyForward').onclick = ()=>copyTableAsText('forwardChart');
+});
+</script>
+</body>
+</html>
